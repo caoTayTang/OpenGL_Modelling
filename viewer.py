@@ -99,20 +99,32 @@ class Viewer:
             GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
             
             win_size = glfw.get_window_size(self.win)
-            view = self.cameras[self.current_camera].view_matrix()
-            projection = self.cameras[self.current_camera].projection_matrix(win_size)
+            cam = self.cameras[self.current_camera]
+            view = cam.view_matrix()
+            projection = cam.projection_matrix(win_size)
             
             if self.display_mode == 1:
-                # Render scene to populate depth buffer
-                self.scene.draw(projection, view)
+                # Render depth map using depth shader directly
+                GL.glUseProgram(self.depth_shader.render_idx)
+                from libs.buffer import UManager
+                uma = UManager(self.depth_shader)
                 
-                # Read depth buffer
-                width, height = win_size
-                depth_buffer = GL.glReadPixels(0, 0, width, height, GL.GL_DEPTH_COMPONENT, GL.GL_UNSIGNED_BYTE)
-                depth_array = np.frombuffer(depth_buffer, dtype=np.uint8).reshape(height, width)
+                # Pass projection and near/far
+                uma.upload_uniform_matrix4fv(projection, 'projection', True)
+                uma.upload_uniform_scalar1f(cam.near, 'near')
+                uma.upload_uniform_scalar1f(cam.far, 'far')
                 
-                # Render depth as grayscale on top using shader quad
-                self._render_depth_overlay(depth_array, width, height)
+                # Draw all objects with depth shader
+                for obj in self.scene.objects:
+                    GL.glUseProgram(self.depth_shader.render_idx)
+                    uma.upload_uniform_matrix4fv(view @ obj.model_matrix, 'modelview', True)
+                    obj.vao.activate()
+                    if obj.indices is not None:
+                        GL.glDrawElements(GL.GL_TRIANGLES, obj.indices.shape[0], GL.GL_UNSIGNED_INT, None)
+                    elif obj.vertices is not None:
+                        GL.glDrawArrays(GL.GL_TRIANGLES, 0, obj.vertices.shape[0])
+                
+                print(f"Depth: near={cam.near:.2f}, far={cam.far:.2f}, objects={len(self.scene.objects)}")
             else:
                 self._setup_lighting()
                 self.scene.draw(projection, view)

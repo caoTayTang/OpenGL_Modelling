@@ -182,6 +182,8 @@ class Trackball:
         self.rotation = quaternion_from_euler(yaw, roll, pitch, radians)
         self.distance = max(distance, 0.001)
         self.pos2d = vec(0.0, 0.0)
+        self.near = 0.1 * self.distance
+        self.far = 100.0 * self.distance
 
     def drag(self, old, new, winsize):
         """ Move trackball from old to new 2d normalized windows position """
@@ -202,10 +204,15 @@ class Trackball:
 
     def projection_matrix(self, winsize):
         """ Projection matrix with z-clipping range adaptive to distance """
-        z_range = vec(0.1, 100) * self.distance  # proportion to dist
-        self.near = z_range[0]
-        self.far = z_range[1]
-        return perspective(35, winsize[0] / winsize[1], *z_range)
+        # For depth visualization: use tighter ratio (10-20x) instead of 1000x
+        # This prevents depth values from clustering near 0
+        dist = max(self.distance, 0.5)
+        near = max(0.05, 0.1 * dist)  # minimum 0.05
+        far = max(near * 15, 2.0 * dist)  # 15x near OR 2x distance, whichever is larger
+        
+        self.near = near
+        self.far = far
+        return perspective(35, winsize[0] / winsize[1], near, far)
 
     def matrix(self):
         """ Rotational component of trackball position """

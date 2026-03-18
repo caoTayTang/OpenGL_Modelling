@@ -65,7 +65,7 @@ class SphereSubdivision(Geometry):
     VERTEX_SHADER = "shaders/color_interp.vert"
     FRAGMENT_SHADER = "shaders/color_interp.frag"
 
-    def __init__(self, radius=0.5, subdivisions=3, vert_shader=None, frag_shader=None):
+    def __init__(self, radius=0.5, subdivisions=1, vert_shader=None, frag_shader=None):
         self.radius = radius
         self.subdivisions = subdivisions
         super().__init__(vert_shader, frag_shader)
