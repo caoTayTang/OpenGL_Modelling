@@ -15,7 +15,7 @@ uniform vec3 light_pos; // Light position
 out vec4 fragColor;
 
 
-uniform sampler2D texture;
+uniform sampler2D uTexture;
 
 void main() {
   vec3 N = normalize(normal_interp);
@@ -34,5 +34,5 @@ void main() {
   vec4 color_interp4 = vec4(color_interp, 1.0);
   float color_factor = 0.2;
   float texture_factor = 1.0 - (color_factor + phong_factor);
-  fragColor = color_factor*color_interp4 + phong_factor*fragColor + texture_factor*texture2D(texture, texcoord_interp);
+  fragColor = color_factor*color_interp4 + phong_factor*fragColor + texture_factor*texture(uTexture, texcoord_interp);
 }

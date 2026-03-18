@@ -52,6 +52,15 @@ class Viewer:
         self.quad_shader = self._create_quad_shader()
         self.quad_vao = self._create_quad_vao()
         
+        # Load all shading mode shaders
+        self.shaders = {
+            'flat': Shader("shaders/flat.vert", "shaders/flat.frag"),
+            'color_interp': Shader("shaders/color_interp.vert", "shaders/color_interp.frag"),
+            'phong': Shader("shaders/phong.vert", "shaders/phong.frag"),
+            'gouraud': Shader("shaders/gouraud.vert", "shaders/gouraud.frag"),
+            'texture': Shader("shaders/phong_texture.vert", "shaders/phong_texture.frag"),
+        }
+        
         self.scene = Scene()
         self.current_camera = 0
         self.cameras = self._create_cameras()
@@ -65,8 +74,9 @@ class Viewer:
         self.near = 0.1
         self.far = 100.0
         
+        # Shading modes: A-F keys
         self.shader_mode = 0
-        self.shader_modes = ['color_interp', 'phong', 'gouraud', 'texture']
+        self.shader_modes = ['flat', 'color_interp', 'phong', 'gouraud', 'texture']
         
         self._add_default_shapes()
 
@@ -123,11 +133,11 @@ class Viewer:
                         GL.glDrawElements(GL.GL_TRIANGLES, obj.indices.shape[0], GL.GL_UNSIGNED_INT, None)
                     elif obj.vertices is not None:
                         GL.glDrawArrays(GL.GL_TRIANGLES, 0, obj.vertices.shape[0])
-                
-                print(f"Depth: near={cam.near:.2f}, far={cam.far:.2f}, objects={len(self.scene.objects)}")
             else:
+                # Render with selected shading mode
                 self._setup_lighting()
-                self.scene.draw(projection, view)
+                current_shader = self.shaders[self.shader_modes[self.shader_mode]]
+                self.scene.draw(projection, view, current_shader)
             
             self._render_ui()
             
@@ -137,6 +147,8 @@ class Viewer:
             self._update_title()
 
     def _setup_lighting(self):
+        # Fixed-function lighting is deprecated in Core Profile
+        # Lighting is handled in the shaders (phong, gouraud)
         pass
 
     def _render_ui(self):
@@ -219,7 +231,7 @@ class Viewer:
                 self.current_camera = (self.current_camera + 1) % len(self.cameras)
                 print(f"Switched to camera {self.current_camera + 1}")
             
-            elif key == glfw.KEY_A:
+            elif key == glfw.KEY_0:
                 self._add_shape('cube')
                 print(f"Added cube. Total objects: {len(self.scene.objects)}")
             
@@ -275,6 +287,24 @@ class Viewer:
                 self.display_mode = (self.display_mode + 1) % 2
                 mode_name = "RGB" if self.display_mode == 0 else "Depth Map"
                 print(f"Display mode: {mode_name}")
+            
+            # Shading mode - cycle with [ and ]
+            elif key == glfw.KEY_LEFT_BRACKET:
+                self.shader_mode = (self.shader_mode - 1) % len(self.shader_modes)
+                print(f"Shading: {self.shader_modes[self.shader_mode]}")
+            elif key == glfw.KEY_RIGHT_BRACKET:
+                self.shader_mode = (self.shader_mode + 1) % len(self.shader_modes)
+                print(f"Shading: {self.shader_modes[self.shader_mode]}")
+            
+            # Light toggle (for future shader support)
+            elif key == glfw.KEY_L:
+                self.light_enabled[0] = not self.light_enabled[0]
+                status = "ON" if self.light_enabled[0] else "OFF"
+                print(f"Light 1: {status}")
+            elif key == glfw.KEY_K:
+                self.light_enabled[1] = not self.light_enabled[1]
+                status = "ON" if self.light_enabled[1] else "OFF"
+                print(f"Light 2: {status}")
             
             elif key == glfw.KEY_R:
                 self._reset_scene()

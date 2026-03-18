@@ -10,12 +10,9 @@ A comprehensive OpenGL-based 3D rendering application demonstrating basic 2D/3D 
 2. [Running the Application](#running-the-application)
 3. [Controls & Keymap](#controls--keymap)
 4. [Technical Documentation](#technical-documentation)
-   - [Rendering Pipeline](#rendering-pipeline)
-   - [Shaders](#shaders)
-   - [Geometry Generation](#geometry-generation)
-   - [Camera System](#camera-system)
-5. [Features](#features)
-6. [Project Structure](#project-structure)
+5. [Implementation Details](#implementation-details)
+6. [Features](#features)
+7. [Project Structure](#project-structure)
 
 ---
 
@@ -56,7 +53,7 @@ python app.py
 ### Shape Management
 | Key | Action |
 |-----|--------|
-| **A** | Add new cube at offset position |
+| **0** | Add new cube at offset position |
 | **1** | Replace selected shape with **Cube** |
 | **2** | Replace selected shape with **UV Sphere** |
 | **3** | Replace selected shape with **Cylinder** |
@@ -79,16 +76,20 @@ python app.py
 | **Page Up** | Move selected object forward (Z+) |
 | **Page Down** | Move selected object backward (Z-) |
 
-### Rendering Modes
+### Rendering & Shading
 | Key | Action |
 |-----|--------|
 | **W** | Toggle wireframe/fill/point mode |
 | **D** | Toggle RGB rendering ↔ Depth Map |
-| **R** | Reset scene to default state |
+| **[** | Previous shading mode |
+| **]** | Next shading mode |
+| **L** | Toggle Light 1 |
+| **K** | Toggle Light 2 |
 
-### Exit
+### Scene
 | Key | Action |
 |-----|--------|
+| **R** | Reset scene to default state |
 | **Q** or **Escape** | Quit application |
 
 ---
@@ -117,9 +118,9 @@ This application follows the modern OpenGL rendering pipeline:
 │     - Fragment Shader: Calculates colors, lighting            │
 │                                                                 │
 │  4. Matrix Transformations                                    │
-│     - Model Matrix: Object's local transformation              │
-│     - View Matrix: Camera transformation                       │
-│     - Projection Matrix: Perspective/Orthographic              │
+│     - Model Matrix: Object's local transformation            │
+│     - View Matrix: Camera transformation                      │
+│     - Projection Matrix: Perspective/Orthographic            │
 │                                                                 │
 │  5. Rasterization                                            │
 │     - Primitive assembly (triangles)                          │
@@ -145,105 +146,164 @@ The application includes multiple shader programs:
 | **Texture** | `phong_texture.vert/frag` | Phong + texture mapping |
 | **Depth** | `depth.vert/frag` | Depth map visualization |
 
-#### Vertex Shader Structure
+#### Vertex Shader Example (Color Interpolation)
 ```glsl
 #version 330 core
-layout (location = 0) in vec3 aPos;      // Vertex position
-layout (location = 1) in vec3 aColor;    // Vertex color
-layout (location = 2) in vec3 aNormal;   // Vertex normal
 
-uniform mat4 model;      // Model matrix
-uniform mat4 view;      // View matrix  
-uniform mat4 projection; // Projection matrix
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 color;
 
-void main() {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
+uniform mat4 projection, modelview;
+out vec3 fragment_color;
+
+void main(){
+    fragment_color = color;
+    gl_Position = projection * modelview * vec4(position, 1.0);
 }
 ```
 
-#### Fragment Shader (Phong)
+#### Fragment Shader Example (Phong)
 ```glsl
 #version 330 core
-// Calculates ambient + diffuse + specular lighting
-// I_light * (K_ambient + K_diffuse * NdotL + K_specular * (RdotV)^shininess)
+
+precision mediump float;
+in vec3 normal_interp;  // Surface normal
+in vec3 vertPos;       // Vertex position
+in vec3 colorInterp;
+
+uniform mat3 K_materials;
+uniform mat3 I_light;
+uniform float shininess;
+uniform vec3 light_pos;
+
+out vec4 fragColor;
+
+void main() {
+  vec3 N = normalize(normal_interp);
+  vec3 L = normalize(light_pos - vertPos);
+  vec3 R = reflect(-L, N);
+  vec3 V = normalize(-vertPos);
+
+  float specAngle = max(dot(R, V), 0.0);
+  float specular = pow(specAngle, shininess);
+  vec3 g = vec3(max(dot(L, N), 0.0), specular, 1.0);
+  vec3 rgb = 0.5*matrixCompMult(K_materials, I_light) * g + 0.5*colorInterp;
+
+  fragColor = vec4(rgb, 1.0);
+}
 ```
+
+#### Depth Shader (Linearized Depth)
+```glsl
+// Vertex Shader
+#version 330 core
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 color;
+
+uniform mat4 projection, modelview;
+
+void main(){
+    gl_Position = projection * modelview * vec4(position, 1.0);
+}
+
+// Fragment Shader
+#version 330 core
+out vec4 outColor;
+
+uniform float near;
+uniform float far;
+
+float linearizeDepth(float depth) {
+    float z = depth * 2.0 - 1.0; // NDC
+    return (2.0 * near * far) / (far + near - z * (far - near));
+}
+
+void main() {
+    float linearDepth = linearizeDepth(gl_FragCoord.z);
+    float depth = (linearDepth - near) / (far - near);
+    depth = clamp(depth, 0.0, 1.0);
+    depth = pow(depth, 0.5); // Gamma correction
+    outColor = vec4(vec3(depth), 1.0);
+}
+```
+
+---
+
+## Implementation Details
 
 ### Geometry Generation
 
-#### 2D Shapes
-- **Triangle**: 3 vertices
-- **Rectangle**: 4 vertices + 2 triangles
-- **Pentagon/Hexagon**: n vertices using triangle fan
-- **Circle/Ellipse**: Many vertices using triangle fan
-- **Trapezoid**: Custom 4 vertices
-- **Star**: 10 vertices (5 outer + 5 inner) using triangle fan
-- **Arrow**: Custom polygon
+#### 2D Shapes (9 types)
+| Shape | Method |
+|-------|--------|
+| **Triangle** | 3 vertices, GL_TRIANGLES |
+| **Rectangle** | 4 vertices, 2 triangles |
+| **Pentagon** | 5 vertices, triangle fan |
+| **Hexagon** | 6 vertices, triangle fan |
+| **Circle** | 32+ segments, triangle fan |
+| **Ellipse** | Scaled circle (x radius ≠ y radius) |
+| **Trapezoid** | 4 custom vertices |
+| **Star** | 10 vertices (5 outer + 5 inner), triangle fan |
+| **Arrow** | Custom polygon |
 
-#### 3D Shapes
+#### 3D Shapes (11+ types)
 
 | Shape | Generation Method |
 |-------|-----------------|
 | **Cube** | 8 corner vertices, 12 triangles (2 per face) |
-| **Sphere (UV)** | Grid projection: theta/phi loops → normalize to sphere |
-| **Sphere (Subdivision)** | Start with tetrahedron, recursively subdivide triangles, normalize vertices to sphere surface |
-| **Sphere (Lat-Long)** | Latitude/longitude grid, similar to UV sphere |
-| **Cylinder** | Circle at y=bottom + circle at y=top + side triangles |
+| **UV Sphere** | Grid projection: theta/phi loops → normalize to sphere surface |
+| **Subdivision Sphere** | Start with icosahedron (12 vertices), recursively subdivide each triangle, normalize to unit sphere |
+| **Lat-Long Sphere** | Latitude/longitude grid (similar to UV sphere) |
+| **Cylinder** | Two circles (top/bottom) + side triangles |
 | **Cone** | Circle at base + apex point + side triangles |
 | **Truncated Cone** | Two circles at different radii + side triangles |
-| **Tetrahedron** | 4 vertices, 4 faces |
-| **Torus** | Major circle + minor circle revolution |
-| **Prism** | n-sided polygon extrude + caps |
+| **Tetrahedron** | 4 vertices, 4 equilateral faces |
+| **Torus** | Major circle (R) + minor circle (r) revolution |
+| **Prism** | n-sided polygon extrusion with top/bottom caps |
 | **Parametric Surface** | Grid mesh where z = f(x,y) |
+
+### Sphere Generation Algorithms
+
+**1. UV Sphere:**
+```python
+for ring in range(rings + 1):
+    theta = pi * ring / rings
+    for seg in range(segments + 1):
+        phi = 2 * pi * seg / segments
+        x = cos(phi) * sin(theta)
+        y = cos(theta)
+        z = sin(phi) * sin(theta)
+```
+
+**2. Subdivision Sphere:**
+- Start with icosahedron (12 vertices, 20 faces)
+- For each subdivision level:
+  - Find midpoints of all edges
+  - Normalize to unit sphere: `v = normalize(v) * radius`
+  - Replace each triangle with 4 triangles
+- Time complexity: O(4^n) where n = subdivision level
 
 ### Camera System
 
-The application uses a **Trackball Camera** implementation:
+**Trackball Camera** using quaternions:
+- Rotation via quaternion multiplication
+- Smooth interpolation between orientations
+- Distance-based zoom
 
-```
-Trackball Camera Parameters:
-- yaw: rotation around Y axis (horizontal)
-- pitch: rotation around X axis (vertical)  
-- roll: rotation around Z axis (roll)
-- distance: distance from target point
-- pos2d: 2D panning offset
-```
-
-#### Projection Matrix (Perspective)
-```
-fov = 35 degrees (default)
+```python
+# Projection (Perspective)
+fov = 35 degrees
 aspect = width / height
-near = 0.1 * distance
-far = 100 * distance
+near = max(0.05, 0.1 * distance)
+far = max(near * 15, 2.0 * distance)  # ~15:1 ratio for better depth visualization
 ```
 
-#### View Matrix
-Computed using quaternion-based rotation + translation.
+### Depth Map Implementation
 
-### Lighting Model
-
-The application supports Phong lighting model:
-
-```
-I = I_ambient * K_ambient 
-  + I_diffuse * K_diffuse * max(0, N·L)
-  + I_specular * K_specular * max(0, R·V)^shininess
-```
-
-Where:
-- **N**: Surface normal
-- **L**: Light direction
-- **V**: View direction
-- **R**: Reflection direction
-
-### Depth Map Rendering
-
-When pressing **D** to toggle depth map mode:
-
-1. Objects are rendered with a custom depth shader
-2. The depth shader calculates linear depth from view space Z coordinate
-3. Depth is normalized and displayed as grayscale:
-   - White = near (closest to camera)
-   - Black = far (furthest from camera)
+1. Render scene normally (populates depth buffer)
+2. Use depth shader to compute linearized depth
+3. Near/far ratio optimized (~15:1) to prevent depth clustering
+4. Gamma correction (pow 0.5) for better visual contrast
 
 ---
 
@@ -251,35 +311,58 @@ When pressing **D** to toggle depth map mode:
 
 ### ✅ Implemented Features
 
-**2D Shapes:**
+**2D Shapes (9 types):**
 - Triangle, Rectangle, Pentagon, Hexagon
 - Circle, Ellipse, Trapezoid, Star, Arrow
 
-**3D Shapes:**
-- Cube, Sphere (3 methods), Cylinder
-- Cone, Truncated Cone, Tetrahedron
-- Torus, Prism, Parametric Surface
+**3D Shapes (11+ types):**
+- Cube, Sphere (3 methods: UV, Subdivision, Lat-Long)
+- Cylinder, Cone, Truncated Cone
+- Tetrahedron, Torus, Prism
+- Parametric Surface
 
-**Shading Modes:**
-- (A) Flat color
-- (B) Vertex color interpolation
-- (C) Phong/Gouraud shading
-- (D) Texture mapping
-- (E) Combined
-- (F) Wireframe mode
-
-**Lighting:**
-- Multiple light sources (2 lights)
+**Shading Modes (6 types):**
+- Flat color
+- Vertex color interpolation
+- Phong shading (per-fragment)
+- Gouraud shading (per-vertex)
+- Texture mapping
+- Wireframe mode
 
 **Camera:**
-- Multiple cameras (3 cameras)
+- 3 cameras with different initial positions
 - Orbit rotation (mouse drag)
 - Pan (right mouse drag)
 - Zoom (scroll wheel)
 
 **Display:**
 - RGB rendering
-- Depth map visualization
+- Depth map visualization (linearized)
+
+---
+
+## ⚠️ Notes & Known Issues
+
+### Lighting
+- Light toggle keys (L/K) are implemented but **not fully functional** with current shaders
+- The Phong/Gouraud shaders compute lighting internally (hardcoded light position)
+- Fixed-function pipeline (glEnable(GL_LIGHTING)) is deprecated in OpenGL Core Profile
+
+### Shader Status
+| Shader | Status | Notes |
+|--------|--------|-------|
+| **Flat** | ✅ Working | Simple color output |
+| **Color Interp** | ✅ Working | Vertex color interpolation |
+| **Depth** | ✅ Working | Linearized depth with gamma |
+| **Phong** | ⚠️ May have issues | Needs proper light uniforms |
+| **Gouraud** | ⚠️ May have issues | Needs proper light uniforms |
+| **Texture** | ⚠️ May have issues | Needs texture setup |
+
+### Future Improvements
+1. Implement proper light uniforms in shaders
+2. Add texture loading and binding
+3. Fix Phong/Gouraud shading calculations
+4. Add OBJ/PLY model loading
 
 ---
 
@@ -289,22 +372,22 @@ When pressing **D** to toggle depth map mode:
 assignment_1_1/
 ├── libs/                       # Core utilities (from Sample)
 │   ├── shader.py              # Shader compilation
-│   ├── buffer.py              # VAO, VBO, EBO management
-│   ├── transform.py           # Matrix operations
+│   ├── buffer.py              # VAO, VBO, EBO, UManager
+│   ├── transform.py           # Matrix operations, Trackball
 │   ├── camera.py              # Camera class
 │   └── lighting.py            # Lighting management
 │
 ├── geometry/                   # Geometry generators
 │   ├── base.py               # Base Geometry class
-│   ├── shapes_2d.py          # 2D shape classes
-│   └── shapes_3d.py         # 3D shape classes
+│   ├── shapes_2d.py          # 2D shape classes (9)
+│   └── shapes_3d.py          # 3D shape classes (11+)
 │
 ├── shaders/                    # GLSL shaders
 │   ├── flat.vert/frag
 │   ├── color_interp.vert/frag
 │   ├── phong.vert/frag
 │   ├── gouraud.vert/frag
-│   ├── texture.vert/frag
+│   ├── phong_texture.vert/frag
 │   └── depth.vert/frag
 │
 ├── scene.py                    # Scene management
@@ -313,6 +396,15 @@ assignment_1_1/
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Key Algorithms
+
+1. **Quaternion Rotation** - For smooth camera orbit
+2. **Triangle Subdivision** - For subdivision sphere
+3. **Linear Depth** - For depth map visualization: `linearDepth = (2*near*far)/(far+near-z*(far-near))`
+4. **Parametric Surface** - For custom surfaces: z = f(x,y)
 
 ---
 
