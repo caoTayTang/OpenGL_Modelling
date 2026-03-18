@@ -1,0 +1,6 @@
+.venv
+.vscode
+.DS_Store
+AGENTS.md
+cgAssignments_vi.md
+Sample/**
