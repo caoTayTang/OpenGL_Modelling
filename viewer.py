@@ -36,6 +36,7 @@ class Viewer:
         self.trackball = Trackball(distance=3.0)
         self.mouse = (0, 0)
         self.scroll_y = 0  # For scroll zoom polling
+        self._is_dragging = False  # Track if mouse is being dragged
 
         # Track key states to detect single press (not held)
         self._key_state = {}  # key -> True if was held last frame
@@ -789,20 +790,36 @@ class Viewer:
 
         # Handle mouse camera controls (only when ImGui doesn't want mouse)
         if io.want_capture_mouse:
+            self._is_dragging = False
             return
 
         win_size = glfw.get_window_size(self.win)
         mouse_pos = glfw.get_cursor_pos(self.win)
 
-        # Polling-based camera controls
-        if glfw.get_mouse_button(self.win, glfw.MOUSE_BUTTON_LEFT):
-            old = self.mouse
-            self.mouse = (mouse_pos[0], win_size[1] - mouse_pos[1])
-            self.cameras[self.current_camera].drag(old, self.mouse, win_size)
-        if glfw.get_mouse_button(self.win, glfw.MOUSE_BUTTON_RIGHT):
-            old = self.mouse
-            self.mouse = (mouse_pos[0], win_size[1] - mouse_pos[1])
-            self.cameras[self.current_camera].pan(old, self.mouse)
+        # Convert to GL coordinates (Y inverted)
+        current_mouse = (mouse_pos[0], win_size[1] - mouse_pos[1])
+
+        # Polling-based camera controls - use delta movement
+        left_pressed = glfw.get_mouse_button(self.win, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
+        right_pressed = glfw.get_mouse_button(self.win, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS
+
+        if left_pressed:
+            if not self._is_dragging:
+                # First frame of drag - start from current position to avoid jump
+                self._is_dragging = True
+                self.mouse = current_mouse
+            self.cameras[self.current_camera].drag(self.mouse, current_mouse, win_size)
+        elif right_pressed:
+            if not self._is_dragging:
+                self._is_dragging = True
+                self.mouse = current_mouse
+            self.cameras[self.current_camera].pan(self.mouse, current_mouse)
+        else:
+            # Mouse button released
+            self._is_dragging = False
+
+        # Always update stored mouse position for next frame
+        self.mouse = current_mouse
 
         # Scroll zoom is handled by on_scroll callback
 
