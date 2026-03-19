@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from geometry.shapes_2d import *
 from geometry.shapes_3d import *
+from geometry.model_loader import load_model
 
 
 class Scene:
@@ -104,3 +105,8 @@ class SceneBuilder:
         if func_name.lower() in funcs:
             return ParametricSurface(func=funcs[func_name.lower()], **kwargs)
         return None
+
+    @staticmethod
+    def load_model(filepath, **kwargs):
+        """Load a 3D model from OBJ or PLY file."""
+        return load_model(filepath, **kwargs)

@@ -3,3 +3,4 @@ PyOpenGL_accelerate
 opencv-python
 glfw
 numpy
+imgui-bundle

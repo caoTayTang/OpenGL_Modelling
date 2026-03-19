@@ -1,8 +1,11 @@
 #version 330 core
 
-// output fragment color for OpenGL
+// Vertex inputs
+flat in vec3 colorInterp;
+
 out vec4 out_color;
 
 void main() {
-    out_color = vec4(1, 0, 1, 1);
+    // Use vertex color (interpolated across face, but looks flat per-face)
+    out_color = vec4(colorInterp, 1.0);
 }
